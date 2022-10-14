@@ -25,9 +25,6 @@ from keras.models import model_from_json
 import warnings
 warnings.filterwarnings("ignore")
 
-# Constants
-DEVICE = 'cpu'
-
 # model_A_weights (Trained with ShanghaiTech A: Shanghai crowd pictures from the Internet)
 MODELS_PATHS = [("A", "weights/model_A_weights.h5"), ("B", "weights/model_B_weights.h5")]
 DATASET_PATH = "data"
