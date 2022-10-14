@@ -36,7 +36,7 @@ from scipy import spatial
 from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 
-BASE_PATH = "cclabeler/data"
+BASE_PATH = "cclabeler-mt/data"
 IMAGE_PATH = f"{BASE_PATH}/images"
 JSON_PATH = f"{BASE_PATH}/jsons"
 
