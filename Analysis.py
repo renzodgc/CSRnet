@@ -5,28 +5,49 @@ Created on Sat Nov  3 14:50:14 2018
 @author: lenovo
 """
 
-from keras.models import model_from_json
-import os
-import cv2
-import glob
-import h5py
-import pandas as pd
-from sklearn.metrics import mean_absolute_error
-import scipy.io as io
-from PIL import Image
-import numpy as np
+# Python Imports
 
-def load_model():
-    
-    json_file = open('models/Model.json', 'r')
+import cv2
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import h5py
+import glob
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+from pathlib import Path
+from PIL import Image
+from sklearn.metrics import mean_absolute_error
+from matplotlib import cm as c
+from keras.models import model_from_json
+
+import warnings
+warnings.filterwarnings("ignore")
+
+# Constants
+DEVICE = 'cpu'
+
+# model_A_weights (Trained with ShanghaiTech A: Shanghai crowd pictures from the Internet)
+MODELS_PATHS = [("A", "weights/model_A_weights.h5"), ("B", "weights/model_B_weights.h5")]
+DATASET_PATH = "data"
+MODEL_JSON = "models/Model.json"
+
+RESULTS_PATH = "results"
+VISUALIZATION_PATH = f"{RESULTS_PATH}/visualization"
+
+def load_model(model):
+    # Function to load and return neural network model 
+
+    json_file = open(MODEL_JSON, 'r')
     loaded_model_json = json_file.read()
     json_file.close()
     loaded_model = model_from_json(loaded_model_json)
-    loaded_model.load_weights("weights/model_A_weights.h5")
+    loaded_model.load_weights(model)
     return loaded_model
 
-
 def create_img(path):
+    # Function to load,normalize and return image 
     im = Image.open(path).convert('RGB')
     
     im = np.array(im)
@@ -37,53 +58,72 @@ def create_img(path):
     im[:,:,1]=(im[:,:,1]-0.456)/0.224
     im[:,:,2]=(im[:,:,2]-0.406)/0.225
 
-
-    im = np.expand_dims(im,axis  = 0)
+    im = np.expand_dims(im, axis  = 0)
     return im
 
-root = 'data'
-part_A_train = os.path.join(root,'part_A_final/train_data','images')
-part_A_test = os.path.join(root,'part_A_final/test_data','images')
-part_B_train = os.path.join(root,'part_B_final/train_data','images')
-part_B_test = os.path.join(root,'part_B_final/test_data','images')
-path_sets = [part_A_test]
-img_paths = []
-for path in path_sets:
-    for img_path in glob.glob(os.path.join(path, '*.jpg')):
-        img_paths.append(img_path)
-print(len(img_paths))
+def predict(path, model):
+    # Function to load image,predict heat map, generate count and return (image , heat map, count)
+    image = create_img(path)
+    pred_hmap = model.predict(image)
+    pred_count = np.sum(pred_hmap)
+    return image, pred_hmap, pred_count
 
-model = load_model()
-name = []
-y_true = []
-y_pred = []
+def run_test(test_image_path, test_gt_path, model, model_index):
+    image, pred_hmap, pred_count = predict(test_image_path, model)
+    gt_file = h5py.File(test_gt_path , 'r')
+    gt_hmap = np.asarray(gt_file['density'])
+    gt_count = np.sum(gt_hmap)
+    process_test_results(image, pred_hmap, pred_count, gt_hmap, gt_count, test_image_path, model_index)
+    return image, pred_hmap, pred_count, gt_hmap, gt_count
 
-for image in img_paths:
-    name.append(image)
-    gt = h5py.File(image.replace('.jpg','.h5').replace('images','ground') )
-    groundtruth = np.asarray(gt['density'])
-    num1 = np.sum(groundtruth)
-    y_true.append(np.sum(num1))
-    img = create_img(image)
-    num = np.sum(model.predict(img))
-    y_pred.append(np.sum(num))
+def process_test_results(img, pred_hmap, pred_count, gt_hmap, gt_count, image_path, model_index):
+    print(f"Predict Count: {pred_count} out of {gt_count} annotated")
+    image_name, image_ext = os.path.splitext(os.path.basename(image_path))
+    original_image = cv2.imread(image_path)
+    pred_hmap = pred_hmap.reshape(pred_hmap.shape[1], pred_hmap.shape[2])
+    pred_image = cv2.resize(pred_hmap, dsize=(img.shape[2], img.shape[1]), interpolation=cv2.INTER_CUBIC)
 
-    
-data = pd.DataFrame({'name': name,'y_pred': y_pred,'y_true': y_true})
-data.to_csv('CSV/A_on_A_test.csv', sep=',')
+    cv2.imwrite(os.path.join(VISUALIZATION_PATH, model_index, f"{image_name}-img{image_ext}"), original_image)
+    fig = plt.imshow(pred_image, cmap = c.jet)
+    plt.axis('off')
+    fig.axes.get_xaxis().set_visible(False)
+    fig.axes.get_yaxis().set_visible(False)
+    plt.savefig(os.path.join(VISUALIZATION_PATH, model_index, f"{image_name}-img-gt{image_ext}"), bbox_inches='tight', pad_inches = 0)
+    plt.close()
+    fig = plt.imshow(gt_hmap, cmap = c.jet)
+    plt.axis('off')
+    fig.axes.get_xaxis().set_visible(False)
+    fig.axes.get_yaxis().set_visible(False)
+    plt.savefig(os.path.join(VISUALIZATION_PATH, model_index, f"{image_name}-img-pred{image_ext}"), bbox_inches='tight', pad_inches = 0)
+    plt.close()
 
-data = pd.read_csv('CSV/A_on_A_test.csv')
-y_true = data['y_true']
-y_pred = data['y_pred']
+def test_dataset(index, model):
+    print()
+    print(f"--- Starting model {index} ---")
+    print()
+    img_paths = glob.glob(os.path.join(DATASET_PATH, "images", '*.jpg'))
 
-ans = mean_absolute_error(np.array(y_true),np.array(y_pred))
+    name = []
+    y_true = []
+    y_pred = []
 
-print("MAE : " , ans )
+    Path(os.path.join(VISUALIZATION_PATH, index)).mkdir(parents=True, exist_ok=True)
 
-data = pd.read_csv('CSV/B_on_B_test.csv' , sep='\t')
-y_true = data['y_true']
-y_pred = data['y_pred']
+    for image_path in img_paths:
+        name.append(image_path)
+        gt_path = image_path.replace('.jpg','.h5').replace('images','ground_truth')
+        img, pred_hmap, pred_count, gt_hmap, gt_count = run_test(image_path, gt_path, model, index)
+        y_pred.append(pred_count)
+        y_true.append(gt_count)
 
-ans = mean_absolute_error(np.array(y_true),np.array(y_pred))
+    data = pd.DataFrame({'name': name, 'y_pred': y_pred, 'y_true': y_true})
+    data.to_csv(f'{RESULTS_PATH}/test_{index}.csv', sep=',')
+    ans = mean_absolute_error(np.array(y_true), np.array(y_pred))
+    print(f"--- Model {index} finished. Total MAE : {ans} ---")
+    print()
+    print()
 
-print("MAE : " , ans )
+if __name__ == "__main__":
+    for index, model_path in MODELS_PATHS:
+        model = load_model(model_path)
+        test_dataset(index, model)

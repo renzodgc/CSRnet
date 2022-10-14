@@ -1,0 +1,6 @@
+,name,y_pred,y_true
+0,data/images/1.jpg,72.40512,91.03185
+1,data/images/3.jpg,71.73848,61.653446
+2,data/images/5.jpg,76.790924,81.4826
+3,data/images/4.jpg,92.814766,100.55059
+4,data/images/2.jpg,33.15848,37.500652
