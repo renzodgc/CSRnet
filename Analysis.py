@@ -9,7 +9,7 @@ Created on Sat Nov  3 14:50:14 2018
 
 import cv2
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import h5py
 import glob
 import numpy as np
